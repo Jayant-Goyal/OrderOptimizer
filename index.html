@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discount Optimizer Pro</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React and ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for in-browser JSX parsing -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+        .tab-btn { transition: all 0.2s ease; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 selection:bg-indigo-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+
+        // --- Icons ---
+        const TrashIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>;
+        const PlusIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
+        const MinusIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
+        const SwitchIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>;
+        const InfoIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>;
+        const SparklesIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>;
+        const ZapIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>;
+        const AlertIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>;
+        const CopyIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>;
+        const CheckIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12"/></svg>;
+
+        // --- Core Economic Engine ---
+        const typeRank = { 'must': 1, 'filler1': 2, 'filler2': 3 };
+        const sortItemsSafe = (a, b) => typeRank[a.type] - typeRank[b.type];
+
+        const calculateOptimization = (mustHaves, filler1s, filler2s, targetAmount, discountValue) => {
+          if (!targetAmount || targetAmount <= 0) return { error: "Please enter a valid target amount." };
+          
+          const targetCents = Math.round(targetAmount * 100);
+          const discountCents = Math.round(discountValue * 100);
+          if (targetCents > 1000000) return { error: "Target amount is too high (Max ₹10,000)." };
+
+          let mItems = [];
+          mustHaves.forEach(item => {
+            for (let i = 0; i < item.qty; i++) mItems.push({ ...item, type: 'must', uniqueId: Math.random().toString(36).substring(2, 11) });
+          });
+          let f1Items = [];
+          filler1s.forEach(item => {
+            for (let i = 0; i < item.qty; i++) f1Items.push({ ...item, type: 'filler1', uniqueId: Math.random().toString(36).substring(2, 11) });
+          });
+          let f2Items = [];
+          filler2s.forEach(item => {
+            for (let i = 0; i < item.qty; i++) f2Items.push({ ...item, type: 'filler2', uniqueId: Math.random().toString(36).substring(2, 11) });
+          });
+
+          if (mItems.length === 0) return { error: "Please add at least one Must-Have item to begin optimization." };
+
+          const sumM = mItems.reduce((acc, it) => acc + Math.round(it.price * 100), 0);
+          const sumF = [...f1Items, ...f2Items].reduce((acc, it) => acc + Math.round(it.price * 100), 0);
+
+          // Calculate maximum mathematically viable orders based on total available cart value
+          let maxK = Math.floor((sumM + sumF) / targetCents);
+          if (maxK === 0 && mItems.length > 0) maxK = 1;
+          maxK = Math.min(maxK, 15); // Hard cap for browser performance
+
+          let bestConfig = null;
+
+          for (let k = 1; k <= maxK; k++) {
+            let mSorted = [...mItems].sort((a, b) => b.price - a.price);
+            let bins = Array.from({ length: k }, () => ({ mItems: [], sum: 0 }));
+
+            // Phase 1: Greedy distribution of Must-Haves to balance the bins
+            mSorted.forEach(item => {
+              let minBin = bins[0];
+              for (let i = 1; i < k; i++) if (bins[i].sum < minBin.sum) minBin = bins[i];
+              minBin.mItems.push(item);
+              minBin.sum += Math.round(item.price * 100);
+            });
+
+            // Phase 2: Local Search (Hill Climbing) to perfectly pack items and reduce deficits
+            let currentDeficit = bins.reduce((acc, b) => acc + Math.max(0, targetCents - b.sum), 0);
+            for (let step = 0; step < 2000; step++) {
+              if (currentDeficit === 0) break;
+              
+              let b1Idx = Math.floor(Math.random() * k);
+              let b2Idx = Math.floor(Math.random() * k);
+              if (b1Idx === b2Idx || bins[b1Idx].mItems.length === 0) continue;
+
+              let itemIdx = Math.floor(Math.random() * bins[b1Idx].mItems.length);
+              let item = bins[b1Idx].mItems[itemIdx];
+              let price = Math.round(item.price * 100);
+
+              let oldDef = Math.max(0, targetCents - bins[b1Idx].sum) + Math.max(0, targetCents - bins[b2Idx].sum);
+              let newDef = Math.max(0, targetCents - (bins[b1Idx].sum - price)) + Math.max(0, targetCents - (bins[b2Idx].sum + price));
+
+              if (newDef <= oldDef) {
+                bins[b1Idx].mItems.splice(itemIdx, 1);
+                bins[b1Idx].sum -= price;
+                bins[b2Idx].mItems.push(item);
+                bins[b2Idx].sum += price;
+                currentDeficit = currentDeficit - oldDef + newDef;
+              }
+            }
+
+            // Phase 3: Fill any remaining deficits with available Fillers (prioritizing L1 over L2)
+            let currentF1 = [...f1Items];
+            let currentF2 = [...f2Items];
+            let valid = true;
+            let totalFillerSpend = 0;
+            let finalOrders = [];
+
+            // Sort bins so bins with largest deficits get first pick of fillers
+            let sortedBins = bins.map((b, idx) => ({ ...b, idx })).sort((a, b) => a.sum - b.sum);
+
+            for (let i = 0; i < k; i++) {
+              let bin = sortedBins[i];
+              let deficit = targetCents - bin.sum;
+              let orderItems = [...bin.mItems];
+              
+              if (deficit > 0) {
+                let availableFillers = [...currentF1, ...currentF2];
+                let fillerSum = availableFillers.reduce((s, it) => s + Math.round(it.price * 100), 0);
+                if (fillerSum < deficit) {
+                  valid = false; break;
+                }
+
+                let maxFPrice = Math.max(0, ...availableFillers.map(f => Math.round(f.price * 100)));
+                let limit = deficit + maxFPrice; 
+                
+                let dp = new Array(limit + 1).fill(null);
+                dp[0] = { items: [], totalCost: 0, f2Cost: 0 };
+
+                for (let f of availableFillers) {
+                  let p = Math.round(f.price * 100);
+                  let isF2 = f.type === 'filler2';
+                  for (let v = limit; v >= p; v--) {
+                    if (dp[v - p] !== null) {
+                      let candTotal = dp[v - p].totalCost + p;
+                      let candF2 = dp[v - p].f2Cost + (isF2 ? p : 0);
+                      let update = false;
+                      if (dp[v] === null) update = true;
+                      else {
+                        if (candTotal < dp[v].totalCost) update = true;
+                        else if (candTotal === dp[v].totalCost && candF2 < dp[v].f2Cost) update = true;
+                      }
+                      if (update) dp[v] = { items: [...dp[v-p].items, f], totalCost: candTotal, f2Cost: candF2 };
+                    }
+                  }
+                }
+
+                let bestFillers = null;
+                for (let v = deficit; v <= limit; v++) {
+                  if (dp[v] !== null) {
+                    if (!bestFillers) bestFillers = dp[v];
+                    else if (dp[v].totalCost < bestFillers.totalCost) bestFillers = dp[v];
+                    else if (dp[v].totalCost === bestFillers.totalCost && dp[v].f2Cost < bestFillers.f2Cost) bestFillers = dp[v];
+                  }
+                }
+
+                if (!bestFillers) { valid = false; break; }
+
+                orderItems.push(...bestFillers.items);
+                totalFillerSpend += bestFillers.totalCost;
+
+                bestFillers.items.forEach(used => {
+                  if (used.type === 'filler1') {
+                    let idx = currentF1.findIndex(f => f.uniqueId === used.uniqueId);
+                    if (idx !== -1) currentF1.splice(idx, 1);
+                  } else {
+                    let idx = currentF2.findIndex(f => f.uniqueId === used.uniqueId);
+                    if (idx !== -1) currentF2.splice(idx, 1);
+                  }
+                });
+              }
+              
+              orderItems.sort(sortItemsSafe);
+              finalOrders.push({
+                id: Math.random().toString(36).substring(2, 11),
+                items: orderItems,
+                total: orderItems.reduce((s, it) => s + Math.round(it.price * 100), 0) / 100
+              });
+            }
+
+            if (valid) {
+              // Core Economic Objective: Minimize True Net Out-of-Pocket Spend
+              let netCost = sumM + totalFillerSpend - (k * discountCents);
+              let config = { k, netCost, totalFillerSpend, orders: finalOrders };
+
+              if (!bestConfig) bestConfig = config;
+              else if (config.netCost < bestConfig.netCost) bestConfig = config;
+              else if (config.netCost === bestConfig.netCost && config.totalFillerSpend < bestConfig.totalFillerSpend) bestConfig = config;
+            }
+          }
+
+          if (bestConfig) {
+            return { orders: bestConfig.orders };
+          } else {
+            return { error: "Not enough fillers to mathematically bridge the gap to your target. Add more fillers or reduce the threshold." };
+          }
+        };
+
+        // --- Main Application Component ---
+        function App() {
+          const [items, setItems] = useState(() => {
+            const saved = localStorage.getItem('optimizer_items_v2');
+            if (saved) return JSON.parse(saved);
+            const oldSaved = localStorage.getItem('optimizer_items');
+            if (oldSaved) {
+                const parsed = JSON.parse(oldSaved);
+                return parsed.map(i => ({...i, type: i.type === 'filler' ? 'filler2' : i.type}));
+            }
+            return [];
+          });
+          
+          const [targetAmount, setTargetAmount] = useState(() => {
+            const saved = localStorage.getItem('optimizer_target');
+            return saved ? parseFloat(saved) : 249;
+          });
+          const [discountValue, setDiscountValue] = useState(() => {
+            const saved = localStorage.getItem('optimizer_discount');
+            return saved ? parseFloat(saved) : 50;
+          });
+          const [allowF1, setAllowF1] = useState(() => {
+            const saved = localStorage.getItem('optimizer_allow_f1');
+            return saved !== 'false'; 
+          });
+          const [allowF2, setAllowF2] = useState(() => {
+            const saved = localStorage.getItem('optimizer_allow_f2');
+            return saved !== 'false'; 
+          });
+
+          const [activeTab, setActiveTab] = useState('must');
+          const [results, setResults] = useState(null);
+          const [appError, setAppError] = useState(null);
+          const [copiedId, setCopiedId] = useState(null);
+          const [confirmModal, setConfirmModal] = useState(null);
+          const [newItem, setNewItem] = useState({ name: '', price: '', qty: 1 });
+          const [moveState, setMoveState] = useState({ itemId: null, qty: 1, targetType: 'must' });
+
+          const quickFillers = [
+            { name: 'Candy / Toffee', price: 5, target: 'filler2' },
+            { name: 'Eraser', price: 10, target: 'filler2' },
+            { name: 'Small Notebook', price: 30, target: 'filler1' },
+            { name: 'Soap / Handwash', price: 60, target: 'filler1' },
+            { name: 'Coffee / Tea', price: 90, target: 'filler1' },
+          ];
+
+          useEffect(() => {
+            localStorage.setItem('optimizer_items_v2', JSON.stringify(items));
+            localStorage.setItem('optimizer_target', targetAmount.toString());
+            localStorage.setItem('optimizer_discount', discountValue.toString());
+            localStorage.setItem('optimizer_allow_f1', allowF1.toString());
+            localStorage.setItem('optimizer_allow_f2', allowF2.toString());
+          }, [items, targetAmount, discountValue, allowF1, allowF2]);
+
+          const mustHaves = items.filter(i => i.type === 'must');
+          const filler1s = items.filter(i => i.type === 'filler1');
+          const filler2s = items.filter(i => i.type === 'filler2');
+
+          const getActiveItems = () => {
+              if (activeTab === 'must') return mustHaves;
+              if (activeTab === 'filler1') return filler1s;
+              return filler2s;
+          };
+
+          const addSpecificItem = (name, price, qty, type) => {
+            const parsedPrice = parseFloat(price);
+            const parsedQty = parseInt(qty);
+            const existing = items.find(i => i.name.toLowerCase() === name.toLowerCase() && i.price === parsedPrice && i.type === type);
+            
+            if (existing) {
+              setItems(items.map(i => i.id === existing.id ? { ...i, qty: i.qty + parsedQty } : i));
+            } else {
+              setItems([...items, { id: Math.random().toString(36).substring(2, 11), name, price: parsedPrice, qty: parsedQty, type }]);
+            }
+            setResults(null); setAppError(null);
+          };
+
+          const handleAddItem = (e) => {
+            e.preventDefault();
+            if (!newItem.name || !newItem.price || newItem.qty < 1) return;
+            addSpecificItem(newItem.name, newItem.price, newItem.qty, activeTab);
+            setNewItem({ name: '', price: '', qty: 1 });
+          };
+
+          const removeItem = (id) => {
+            setItems(items.filter(item => item.id !== id));
+            if (moveState.itemId === id) setMoveState({ ...moveState, itemId: null });
+            setResults(null); setAppError(null);
+          };
+
+          const clearTab = (type) => {
+            const names = { 'must': 'Must-Have', 'filler1': 'Useful Filler', 'filler2': 'Cheap Padding' };
+            setConfirmModal({
+              title: `Clear ${names[type]}s`,
+              message: `Are you sure you want to delete all your ${names[type]} items?`,
+              action: () => { setItems(items.filter(item => item.type !== type)); setResults(null); }
+            });
+          };
+
+          const clearAll = () => {
+            setConfirmModal({
+              title: 'Clear Entire List',
+              message: 'Are you sure you want to permanently delete all items from your cart?',
+              action: () => { setItems([]); setResults(null); }
+            });
+          };
+
+          const updateQuantity = (id, delta) => {
+            setItems(items.map(item => {
+              if (item.id === id) {
+                const newQty = item.qty + delta;
+                return { ...item, qty: newQty > 0 ? newQty : 1 };
+              }
+              return item;
+            }));
+            setResults(null);
+          };
+
+          const initiateMove = (item) => {
+            const target = item.type === 'must' ? 'filler1' : 'must';
+            setMoveState({ itemId: item.id, qty: 1, targetType: target });
+          };
+
+          const confirmMove = () => {
+            const { itemId, qty, targetType } = moveState;
+            const itemToMove = items.find(i => i.id === itemId);
+            if (!itemToMove || qty < 1 || qty > itemToMove.qty || itemToMove.type === targetType) return;
+
+            const existingTarget = items.find(i => i.name === itemToMove.name && i.price === itemToMove.price && i.type === targetType);
+            let newItems = [...items];
+
+            if (qty === itemToMove.qty) newItems = newItems.filter(i => i.id !== itemId);
+            else newItems = newItems.map(i => i.id === itemId ? { ...i, qty: i.qty - qty } : i);
+
+            if (existingTarget) newItems = newItems.map(i => i.id === existingTarget.id ? { ...i, qty: i.qty + qty } : i);
+            else newItems.push({ ...itemToMove, id: Math.random().toString(36).substring(2, 11), qty, type: targetType });
+
+            setItems(newItems);
+            setMoveState({ itemId: null, qty: 1, targetType: 'must' });
+            setResults(null);
+          };
+
+          const optimize = () => {
+            setAppError(null);
+            try {
+              const f1 = allowF1 ? filler1s : [];
+              const f2 = allowF2 ? filler2s : [];
+              const res = calculateOptimization(mustHaves, f1, f2, targetAmount, discountValue);
+              
+              if (res.error) {
+                setAppError(res.error); setResults(null);
+              } else {
+                setResults(res);
+              }
+            } catch (err) {
+              setAppError("Calculation failed: " + err.message); setResults(null);
+            }
+          };
+
+          const handleCopy = (order, groupedItems, index) => {
+            let text = `🛍️ Optimized Order #${index + 1}\n`;
+            text += `Target: ₹${targetAmount.toFixed(2)} | Total: ₹${order.total.toFixed(2)}\n`;
+            text += `---------------------------\n`;
+            groupedItems.forEach(i => { text += `[ ] ${i.qty}x ${i.name} (₹${i.price.toFixed(2)} ea)\n`; });
+            if (discountValue > 0) {
+              text += `---------------------------\nNet Cost: ₹${Math.max(0, order.total - discountValue).toFixed(2)}\n`;
+            }
+            
+            const copyToClipboard = () => {
+              const textArea = document.createElement("textarea");
+              textArea.value = text;
+              document.body.appendChild(textArea);
+              textArea.select();
+              try {
+                document.execCommand('copy');
+                setCopiedId(order.id);
+                setTimeout(() => setCopiedId(null), 2000);
+              } catch (err) {
+                setAppError("Unable to copy to clipboard.");
+              }
+              document.body.removeChild(textArea);
+            };
+
+            if (navigator.clipboard && window.isSecureContext) {
+              navigator.clipboard.writeText(text).then(() => {
+                setCopiedId(order.id);
+                setTimeout(() => setCopiedId(null), 2000);
+              }).catch(() => copyToClipboard());
+            } else {
+              copyToClipboard();
+            }
+          };
+
+          const ActionButtons = ({ item, isDesktop }) => (
+            <div className={`flex items-center gap-1.5 ${isDesktop ? 'hidden sm:flex border-l pl-3 border-gray-100' : 'sm:hidden'}`}>
+              <button onClick={() => initiateMove(item)} className={`p-1.5 rounded-lg transition-colors ${moveState.itemId === item.id ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`} title="Move Item">
+                <SwitchIcon className="w-4 h-4" />
+              </button>
+              <button onClick={() => removeItem(item.id)} className="text-gray-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition-colors" title="Remove Item">
+                <TrashIcon className="w-4 h-4" />
+              </button>
+            </div>
+          );
+
+          const getBadgeColors = (type) => {
+             if (type === 'filler1') return 'bg-blue-100 text-blue-700 border-blue-200';
+             if (type === 'filler2') return 'bg-orange-100 text-orange-700 border-orange-200';
+             return '';
+          };
+          const getBadgeText = (type) => {
+             if (type === 'filler1') return 'USEFUL';
+             if (type === 'filler2') return 'PADDING';
+             return '';
+          };
+
+          const renderItemList = (displayItems, type) => (
+            <div className="space-y-3 mt-4 max-h-[400px] lg:max-h-[350px] overflow-y-auto pr-2 custom-scrollbar pb-2">
+              {displayItems.length === 0 ? (
+                <div className="text-sm text-gray-500 italic text-center py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  No items added to this tab yet.
+                </div>
+              ) : (
+                displayItems.map(item => (
+                  <div key={item.id} className="flex flex-col bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
+                    <div className="p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex justify-between items-start sm:flex-1 sm:min-w-0 sm:pr-4">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <p className="font-semibold text-gray-800 leading-tight break-words">{item.name}</p>
+                          <p className="text-xs text-gray-500 font-medium mt-1">₹{item.price.toFixed(2)}/ea</p>
+                        </div>
+                        <ActionButtons item={item} isDesktop={false} />
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto bg-gray-50 sm:bg-transparent p-2 sm:p-0 rounded-lg border border-gray-100 sm:border-none">
+                        <div className="flex items-center gap-1.5 bg-white sm:bg-gray-50 rounded-md sm:rounded-lg px-2 py-1 shadow-sm sm:shadow-none border border-gray-200 sm:border-gray-100">
+                          <button onClick={() => updateQuantity(item.id, -1)} className="text-gray-500 hover:text-indigo-600 p-1" disabled={item.qty <= 1}><MinusIcon className="w-3.5 h-3.5" /></button>
+                          <span className="text-sm font-bold text-gray-800 w-6 text-center">{item.qty}</span>
+                          <button onClick={() => updateQuantity(item.id, 1)} className="text-gray-500 hover:text-indigo-600 p-1"><PlusIcon className="w-3.5 h-3.5" /></button>
+                        </div>
+                        <div className="font-bold text-gray-800 text-right sm:w-20 pl-2">
+                          <span className="sm:hidden text-xs text-gray-500 font-normal mr-1">Total:</span>
+                          ₹{(item.price * item.qty).toFixed(2)}
+                        </div>
+                        <ActionButtons item={item} isDesktop={true} />
+                      </div>
+                    </div>
+                    {moveState.itemId === item.id && (
+                      <div className="bg-indigo-50/50 border-t border-indigo-100 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                        <div className="flex items-center gap-2 text-sm text-indigo-900 flex-wrap">
+                          <span>Move</span>
+                          <input type="number" min="1" max={item.qty} value={moveState.qty} onChange={(e) => {
+                              let val = parseInt(e.target.value);
+                              if (isNaN(val) || val < 1) val = 1;
+                              if (val > item.qty) val = item.qty;
+                              setMoveState({...moveState, qty: val});
+                            }} className="w-14 px-1.5 py-1 text-center border border-indigo-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 bg-white" />
+                          <span>to</span>
+                          <select value={moveState.targetType} onChange={(e) => setMoveState({...moveState, targetType: e.target.value})} className="border border-indigo-200 rounded py-1 px-2 focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white">
+                             <option value="must" disabled={item.type === 'must'}>Must-Haves</option>
+                             <option value="filler1" disabled={item.type === 'filler1'}>Level 1 (Useful)</option>
+                             <option value="filler2" disabled={item.type === 'filler2'}>Level 2 (Junk)</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-2 self-end sm:self-auto">
+                          <button onClick={() => setMoveState({ itemId: null, qty: 1, targetType: 'must' })} className="text-xs px-3 py-1.5 text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+                          <button onClick={confirmMove} className="text-xs px-4 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 font-medium shadow-sm">Confirm Move</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          );
+
+          return (
+            <div className="pb-12">
+              
+              {confirmModal && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                  <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
+                    <div className="flex items-center gap-3 mb-4 text-red-600">
+                      <AlertIcon className="w-6 h-6" />
+                      <h3 className="text-lg font-bold text-gray-900">{confirmModal.title}</h3>
+                    </div>
+                    <p className="text-gray-600 mb-6 text-sm">{confirmModal.message}</p>
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => setConfirmModal(null)} className="px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-100 rounded-xl font-semibold transition-colors">Cancel</button>
+                      <button onClick={() => { confirmModal.action(); setConfirmModal(null); }} className="px-4 py-2.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-colors shadow-sm">Yes, Delete</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+                <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-sm">
+                      <SparklesIcon />
+                    </div>
+                    <div>
+                      <h1 className="text-xl md:text-2xl font-bold text-gray-900 leading-tight">Discount Order Optimizer</h1>
+                      <p className="text-xs md:text-sm text-gray-500 hidden sm:block">Maximize your savings by perfectly grouping your cart.</p>
+                    </div>
+                  </div>
+                  {items.length > 0 && (
+                     <button onClick={clearAll} className="text-sm font-medium text-red-600 hover:text-red-800 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-red-100 flex items-center gap-1.5">
+                       <TrashIcon className="w-4 h-4" /> <span className="hidden sm:inline">Clear All</span>
+                     </button>
+                  )}
+                </div>
+              </header>
+
+              <main className="max-w-6xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                <div className="lg:col-span-5 space-y-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                    
+                    <div className="flex border-b border-gray-200 bg-gray-50/50 flex-wrap sm:flex-nowrap">
+                      <button className={`tab-btn flex-1 py-3 px-1 text-xs sm:text-sm font-semibold border-b-2 ${activeTab === 'must' ? 'bg-white text-indigo-700 border-indigo-600' : 'text-gray-500 hover:bg-gray-100 border-transparent'}`} onClick={() => setActiveTab('must')}>
+                         Must-Have ({mustHaves.reduce((s,i)=>s+i.qty,0)})
+                      </button>
+                      <button className={`tab-btn flex-1 py-3 px-1 text-xs sm:text-sm font-semibold border-b-2 ${activeTab === 'filler1' ? 'bg-blue-50 text-blue-700 border-blue-600' : 'text-gray-500 hover:bg-gray-100 border-transparent'}`} onClick={() => setActiveTab('filler1')}>
+                         Lvl 1 Useful ({filler1s.reduce((s,i)=>s+i.qty,0)})
+                      </button>
+                      <button className={`tab-btn flex-1 py-3 px-1 text-xs sm:text-sm font-semibold border-b-2 ${activeTab === 'filler2' ? 'bg-orange-50 text-orange-700 border-orange-600' : 'text-gray-500 hover:bg-gray-100 border-transparent'}`} onClick={() => setActiveTab('filler2')}>
+                         Lvl 2 Junk ({filler2s.reduce((s,i)=>s+i.qty,0)})
+                      </button>
+                    </div>
+
+                    <div className="p-4 sm:p-5 flex-1 flex flex-col">
+                      <form onSubmit={handleAddItem} className="grid grid-cols-12 gap-2 mb-2">
+                        <input type="text" placeholder="Item Name" required className="col-span-12 sm:col-span-6 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                        <div className="col-span-6 sm:col-span-3 relative">
+                          <span className="absolute left-3 top-3 text-gray-400 text-sm">₹</span>
+                          <input type="number" step="0.01" min="0.1" placeholder="Price" required className="w-full border border-gray-300 rounded-lg pl-7 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} />
+                        </div>
+                        <input type="number" min="1" max="100" placeholder="Qty" required className="col-span-4 sm:col-span-2 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" value={newItem.qty} onChange={e => setNewItem({...newItem, qty: e.target.value})} />
+                        <button type="submit" className="col-span-2 sm:col-span-1 bg-indigo-600 text-white rounded-lg flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-sm"><PlusIcon /></button>
+                      </form>
+
+                      {(activeTab === 'filler1' || activeTab === 'filler2') && (
+                        <div className="mb-4 animate-in fade-in pt-2">
+                          <p className="text-xs text-gray-500 font-medium mb-2 pl-1">Quick Add to this tab:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {quickFillers.filter(q => q.target === activeTab).map((qf, idx) => (
+                               <button key={idx} onClick={() => addSpecificItem(qf.name, qf.price, 1, activeTab)} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-1.5 px-3 rounded-full transition-colors border border-gray-200 hover:border-gray-300 flex items-center gap-1.5">
+                                  <PlusIcon className="w-3 h-3 text-gray-500" /> {qf.name} (₹{qf.price})
+                               </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between mt-4 mb-2">
+                         <h3 className="text-sm font-bold text-gray-700">
+                           {activeTab === 'must' && 'Cart Essentials'}
+                           {activeTab === 'filler1' && 'Useful Household Fillers'}
+                           {activeTab === 'filler2' && 'Cheap Absolute Junk'}
+                         </h3>
+                         {getActiveItems().length > 0 && (
+                           <button onClick={() => clearTab(activeTab)} className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors">Clear Tab</button>
+                         )}
+                      </div>
+                      <hr className="border-gray-100 mb-2" />
+                      
+                      {renderItemList(getActiveItems(), activeTab)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-7 space-y-6">
+                  <div className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-gray-200">
+                    <div className="flex flex-col lg:flex-row gap-5 lg:items-end justify-between">
+                      
+                      <div className="grid grid-cols-2 gap-4 flex-1">
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Target Threshold</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-2.5 text-gray-500 font-medium">₹</span>
+                            <input type="number" className="w-full border border-gray-300 rounded-lg pl-7 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow" value={targetAmount} onChange={e => setTargetAmount(parseFloat(e.target.value) || 0)} />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 text-emerald-700">Expected Discount</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-2.5 text-emerald-600 font-medium">₹</span>
+                            <input type="number" className="w-full border border-emerald-300 bg-emerald-50/30 rounded-lg pl-7 pr-4 py-2 font-medium text-emerald-900 focus:ring-2 focus:ring-emerald-500 outline-none transition-shadow" value={discountValue} onChange={e => setDiscountValue(parseFloat(e.target.value) || 0)} />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3">
+                         <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row gap-4 bg-gray-50 p-2.5 rounded-lg border border-gray-100 justify-center">
+                           <label className="flex items-center gap-2.5 cursor-pointer group w-max">
+                             <div className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 ${allowF1 ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                               <input type="checkbox" className="opacity-0 w-0 h-0" checked={allowF1} onChange={e => setAllowF1(e.target.checked)} />
+                               <span className={`absolute left-0.5 top-0.5 bg-white w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 ${allowF1 ? 'translate-x-3.5' : 'translate-x-0'}`}></span>
+                             </div>
+                             <span className="text-xs font-medium text-gray-700">Allow L1 Fillers</span>
+                           </label>
+                           <label className="flex items-center gap-2.5 cursor-pointer group w-max">
+                             <div className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 ${allowF2 ? 'bg-orange-500' : 'bg-gray-300'}`}>
+                               <input type="checkbox" className="opacity-0 w-0 h-0" checked={allowF2} onChange={e => setAllowF2(e.target.checked)} />
+                               <span className={`absolute left-0.5 top-0.5 bg-white w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 ${allowF2 ? 'translate-x-3.5' : 'translate-x-0'}`}></span>
+                             </div>
+                             <span className="text-xs font-medium text-gray-700">Allow L2 Fillers</span>
+                           </label>
+                         </div>
+
+                         <button onClick={optimize} className="w-full lg:w-auto bg-gray-900 text-white px-6 py-3 lg:py-2.5 rounded-xl font-semibold hover:bg-gray-800 focus:ring-4 focus:ring-gray-200 transition-all flex items-center justify-center gap-2 shadow-md">
+                           <ZapIcon className="w-4 h-4" /> Calculate Route
+                         </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {appError && (
+                     <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-800 flex items-start gap-3 animate-in fade-in">
+                        <AlertIcon className="shrink-0 mt-0.5 text-red-500" />
+                        <div>
+                           <h4 className="font-bold">Cannot calculate</h4>
+                           <p className="text-sm mt-1">{appError}</p>
+                        </div>
+                     </div>
+                  )}
+
+                  {results && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                      
+                      <div className="flex justify-end mb-[-10px]">
+                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 shadow-sm">
+                           <ZapIcon className="w-3 h-3" /> Economic Engine (0 Must-Haves Left Behind)
+                         </span>
+                      </div>
+
+                      {results.orders.map((order, index) => {
+                        const overflow = order.total - targetAmount;
+                        const netCost = Math.max(0, order.total - discountValue);
+                        const grouped = order.items.reduce((acc, item) => {
+                          const existing = acc.find(i => i.name === item.name && i.type === item.type);
+                          if (existing) { existing.qty += 1; existing.subtotal += item.price; } 
+                          else { acc.push({ ...item, qty: 1, subtotal: item.price }); }
+                          return acc;
+                        }, []);
+
+                        return (
+                          <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-emerald-200 overflow-hidden relative transition-all hover:shadow-md flex flex-col">
+                            <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500"></div>
+                            
+                            <div className="p-4 pl-6 border-b border-gray-100 flex justify-between items-center bg-emerald-50/50">
+                              <div>
+                                <h3 className="font-bold text-gray-900">Valid Order #{index + 1}</h3>
+                                <p className="text-xs text-emerald-700 font-medium mt-0.5">
+                                  {overflow === 0 ? "Perfect Match!" : `Overshot by ₹${overflow.toFixed(2)}`}
+                                </p>
+                              </div>
+                              <div className="flex gap-3 items-center">
+                                <button onClick={() => handleCopy(order, grouped, index)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${copiedId === order.id ? 'bg-emerald-100 text-emerald-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>
+                                  {copiedId === order.id ? <><CheckIcon className="w-3.5 h-3.5"/> <span className="hidden sm:inline">Copied</span></> : <><CopyIcon className="w-3.5 h-3.5"/> <span className="hidden sm:inline">Copy</span></>}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="p-4 pl-6 bg-white flex-1 overflow-x-auto">
+                              <table className="w-full text-sm min-w-[340px]">
+                                <tbody>
+                                  {grouped.map((item, idx) => (
+                                    <tr key={idx} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                                      <td className="py-2.5 flex items-center gap-2 pr-2">
+                                        {item.type !== 'must' && (
+                                           <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ${getBadgeColors(item.type)}`}>
+                                             {getBadgeText(item.type)}
+                                           </span>
+                                        )}
+                                        <span className={item.type !== 'must' ? 'text-gray-500' : 'text-gray-800 font-medium'}>{item.name}</span>
+                                      </td>
+                                      <td className="py-2.5 text-gray-500 text-right pr-4">₹{item.price.toFixed(2)} x {item.qty}</td>
+                                      <td className="py-2.5 text-gray-900 font-medium text-right w-20 sm:w-24">₹{item.subtotal.toFixed(2)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            <div className="bg-gray-50/80 border-t border-gray-100 p-3 pl-6 pr-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 text-sm">
+                               <div className="text-gray-500 font-medium">Cart Total: <span className="text-gray-800 line-through">₹{order.total.toFixed(2)}</span></div>
+                               <div className="font-bold text-gray-900 flex items-center gap-2">
+                                  {discountValue > 0 && <span className="text-emerald-600 text-xs bg-emerald-100 px-1.5 py-0.5 rounded">-₹{discountValue.toFixed(2)} off</span>} 
+                                  <span className="text-lg">Net Cost: ₹{netCost.toFixed(2)}</span>
+                               </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </main>
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
