@@ -36,178 +36,144 @@
         const CopyIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>;
         const CheckIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12"/></svg>;
 
-        // --- Core Economic Engine ---
+        // --- Strict-Bound Knapsack Engine ---
         const typeRank = { 'must': 1, 'filler1': 2, 'filler2': 3 };
         const sortItemsSafe = (a, b) => typeRank[a.type] - typeRank[b.type];
 
-        const calculateOptimization = (mustHaves, filler1s, filler2s, targetAmount, discountValue) => {
+        const calculateOptimization = (mustHaves, filler1s, filler2s, targetAmount, maxOvershoot) => {
           if (!targetAmount || targetAmount <= 0) return { error: "Please enter a valid target amount." };
           
           const targetCents = Math.round(targetAmount * 100);
-          const discountCents = Math.round(discountValue * 100);
+          const limitCents = targetCents + Math.round((maxOvershoot || 0) * 100);
+          
           if (targetCents > 1000000) return { error: "Target amount is too high (Max ₹10,000)." };
 
-          let mItems = [];
+          let remainingMust = [];
           mustHaves.forEach(item => {
-            for (let i = 0; i < item.qty; i++) mItems.push({ ...item, type: 'must', uniqueId: Math.random().toString(36).substring(2, 11) });
+            for (let i = 0; i < item.qty; i++) remainingMust.push({ ...item, type: 'must', uniqueId: Math.random().toString(36).substring(2, 11) });
           });
-          let f1Items = [];
+
+          let remainingF1 = [];
           filler1s.forEach(item => {
-            for (let i = 0; i < item.qty; i++) f1Items.push({ ...item, type: 'filler1', uniqueId: Math.random().toString(36).substring(2, 11) });
+            for (let i = 0; i < item.qty; i++) remainingF1.push({ ...item, type: 'filler1', uniqueId: Math.random().toString(36).substring(2, 11) });
           });
-          let f2Items = [];
+
+          let remainingF2 = [];
           filler2s.forEach(item => {
-            for (let i = 0; i < item.qty; i++) f2Items.push({ ...item, type: 'filler2', uniqueId: Math.random().toString(36).substring(2, 11) });
+            for (let i = 0; i < item.qty; i++) remainingF2.push({ ...item, type: 'filler2', uniqueId: Math.random().toString(36).substring(2, 11) });
           });
 
-          if (mItems.length === 0) return { error: "Please add at least one Must-Have item to begin optimization." };
+          let orders = [];
 
-          const sumM = mItems.reduce((acc, it) => acc + Math.round(it.price * 100), 0);
-          const sumF = [...f1Items, ...f2Items].reduce((acc, it) => acc + Math.round(it.price * 100), 0);
+          while (remainingMust.length > 0) {
+            let itemsToConsider = [...remainingMust, ...remainingF1, ...remainingF2];
+            let totalCents = itemsToConsider.reduce((sum, i) => sum + Math.round(i.price * 100), 0);
 
-          // Calculate maximum mathematically viable orders based on total available cart value
-          let maxK = Math.floor((sumM + sumF) / targetCents);
-          if (maxK === 0 && mItems.length > 0) maxK = 1;
-          maxK = Math.min(maxK, 15); // Hard cap for browser performance
+            if (totalCents < targetCents) break;
 
-          let bestConfig = null;
+            // DP Array initialized with strictly bounded limit
+            let dp = new Array(limitCents + 1).fill(null);
+            dp[0] = { items: [], mustValue: 0, f1Value: 0, f2Value: 0 };
 
-          for (let k = 1; k <= maxK; k++) {
-            let mSorted = [...mItems].sort((a, b) => b.price - a.price);
-            let bins = Array.from({ length: k }, () => ({ mItems: [], sum: 0 }));
-
-            // Phase 1: Greedy distribution of Must-Haves to balance the bins
-            mSorted.forEach(item => {
-              let minBin = bins[0];
-              for (let i = 1; i < k; i++) if (bins[i].sum < minBin.sum) minBin = bins[i];
-              minBin.mItems.push(item);
-              minBin.sum += Math.round(item.price * 100);
-            });
-
-            // Phase 2: Local Search (Hill Climbing) to perfectly pack items and reduce deficits
-            let currentDeficit = bins.reduce((acc, b) => acc + Math.max(0, targetCents - b.sum), 0);
-            for (let step = 0; step < 2000; step++) {
-              if (currentDeficit === 0) break;
+            for (let i = 0; i < itemsToConsider.length; i++) {
+              let item = itemsToConsider[i];
+              let p = Math.round(item.price * 100);
               
-              let b1Idx = Math.floor(Math.random() * k);
-              let b2Idx = Math.floor(Math.random() * k);
-              if (b1Idx === b2Idx || bins[b1Idx].mItems.length === 0) continue;
+              if (p > limitCents) continue; // Item physically cannot fit in the constraint
 
-              let itemIdx = Math.floor(Math.random() * bins[b1Idx].mItems.length);
-              let item = bins[b1Idx].mItems[itemIdx];
-              let price = Math.round(item.price * 100);
+              for (let v = limitCents; v >= p; v--) {
+                if (dp[v - p] !== null) {
+                  let newMust = dp[v - p].mustValue + (item.type === 'must' ? p : 0);
+                  let newF1 = dp[v - p].f1Value + (item.type === 'filler1' ? p : 0);
+                  let newF2 = dp[v - p].f2Value + (item.type === 'filler2' ? p : 0);
+                  
+                  let shouldUpdate = false;
 
-              let oldDef = Math.max(0, targetCents - bins[b1Idx].sum) + Math.max(0, targetCents - bins[b2Idx].sum);
-              let newDef = Math.max(0, targetCents - (bins[b1Idx].sum - price)) + Math.max(0, targetCents - (bins[b2Idx].sum + price));
-
-              if (newDef <= oldDef) {
-                bins[b1Idx].mItems.splice(itemIdx, 1);
-                bins[b1Idx].sum -= price;
-                bins[b2Idx].mItems.push(item);
-                bins[b2Idx].sum += price;
-                currentDeficit = currentDeficit - oldDef + newDef;
-              }
-            }
-
-            // Phase 3: Fill any remaining deficits with available Fillers (prioritizing L1 over L2)
-            let currentF1 = [...f1Items];
-            let currentF2 = [...f2Items];
-            let valid = true;
-            let totalFillerSpend = 0;
-            let finalOrders = [];
-
-            // Sort bins so bins with largest deficits get first pick of fillers
-            let sortedBins = bins.map((b, idx) => ({ ...b, idx })).sort((a, b) => a.sum - b.sum);
-
-            for (let i = 0; i < k; i++) {
-              let bin = sortedBins[i];
-              let deficit = targetCents - bin.sum;
-              let orderItems = [...bin.mItems];
-              
-              if (deficit > 0) {
-                let availableFillers = [...currentF1, ...currentF2];
-                let fillerSum = availableFillers.reduce((s, it) => s + Math.round(it.price * 100), 0);
-                if (fillerSum < deficit) {
-                  valid = false; break;
-                }
-
-                let maxFPrice = Math.max(0, ...availableFillers.map(f => Math.round(f.price * 100)));
-                let limit = deficit + maxFPrice; 
-                
-                let dp = new Array(limit + 1).fill(null);
-                dp[0] = { items: [], totalCost: 0, f2Cost: 0 };
-
-                for (let f of availableFillers) {
-                  let p = Math.round(f.price * 100);
-                  let isF2 = f.type === 'filler2';
-                  for (let v = limit; v >= p; v--) {
-                    if (dp[v - p] !== null) {
-                      let candTotal = dp[v - p].totalCost + p;
-                      let candF2 = dp[v - p].f2Cost + (isF2 ? p : 0);
-                      let update = false;
-                      if (dp[v] === null) update = true;
-                      else {
-                        if (candTotal < dp[v].totalCost) update = true;
-                        else if (candTotal === dp[v].totalCost && candF2 < dp[v].f2Cost) update = true;
+                  if (dp[v] === null) {
+                    shouldUpdate = true;
+                  } else {
+                    // Priority: Max Must Value > Min F2 Spend > Min F1 Spend
+                    if (newMust > dp[v].mustValue) {
+                      shouldUpdate = true;
+                    } else if (newMust === dp[v].mustValue) {
+                      if (newF2 < dp[v].f2Value) {
+                        shouldUpdate = true;
+                      } else if (newF2 === dp[v].f2Value) {
+                        if (newF1 < dp[v].f1Value) {
+                          shouldUpdate = true;
+                        }
                       }
-                      if (update) dp[v] = { items: [...dp[v-p].items, f], totalCost: candTotal, f2Cost: candF2 };
                     }
                   }
-                }
 
-                let bestFillers = null;
-                for (let v = deficit; v <= limit; v++) {
-                  if (dp[v] !== null) {
-                    if (!bestFillers) bestFillers = dp[v];
-                    else if (dp[v].totalCost < bestFillers.totalCost) bestFillers = dp[v];
-                    else if (dp[v].totalCost === bestFillers.totalCost && dp[v].f2Cost < bestFillers.f2Cost) bestFillers = dp[v];
+                  if (shouldUpdate) {
+                    dp[v] = { items: [...dp[v - p].items, item], mustValue: newMust, f1Value: newF1, f2Value: newF2 };
                   }
                 }
-
-                if (!bestFillers) { valid = false; break; }
-
-                orderItems.push(...bestFillers.items);
-                totalFillerSpend += bestFillers.totalCost;
-
-                bestFillers.items.forEach(used => {
-                  if (used.type === 'filler1') {
-                    let idx = currentF1.findIndex(f => f.uniqueId === used.uniqueId);
-                    if (idx !== -1) currentF1.splice(idx, 1);
-                  } else {
-                    let idx = currentF2.findIndex(f => f.uniqueId === used.uniqueId);
-                    if (idx !== -1) currentF2.splice(idx, 1);
-                  }
-                });
               }
-              
-              orderItems.sort(sortItemsSafe);
-              finalOrders.push({
-                id: Math.random().toString(36).substring(2, 11),
-                items: orderItems,
-                total: orderItems.reduce((s, it) => s + Math.round(it.price * 100), 0) / 100
-              });
             }
 
-            if (valid) {
-              // Core Economic Objective: Minimize True Net Out-of-Pocket Spend
-              let netCost = sumM + totalFillerSpend - (k * discountCents);
-              let config = { k, netCost, totalFillerSpend, orders: finalOrders };
-
-              if (!bestConfig) bestConfig = config;
-              else if (config.netCost < bestConfig.netCost) bestConfig = config;
-              else if (config.netCost === bestConfig.netCost && config.totalFillerSpend < bestConfig.totalFillerSpend) bestConfig = config;
+            let foundBest = null;
+            let bestV = -1;
+            
+            // Find optimal grouping within the valid Target -> Limit window
+            for (let v = targetCents; v <= limitCents; v++) {
+              if (dp[v] !== null && dp[v].mustValue > 0) {
+                let cand = dp[v];
+                if (!foundBest) {
+                   foundBest = cand;
+                   bestV = v;
+                } else {
+                   if (cand.mustValue > foundBest.mustValue) {
+                     foundBest = cand; bestV = v;
+                   } else if (cand.mustValue === foundBest.mustValue) {
+                     if (cand.f2Value < foundBest.f2Value) {
+                       foundBest = cand; bestV = v;
+                     } else if (cand.f2Value === foundBest.f2Value) {
+                       if (cand.f1Value < foundBest.f1Value) {
+                         foundBest = cand; bestV = v;
+                       } else if (cand.f1Value === foundBest.f1Value && v < bestV) {
+                         // Tie breaker: Minimize absolute overshoot
+                         foundBest = cand; bestV = v;
+                       }
+                     }
+                   }
+                }
+              }
             }
+
+            if (!foundBest) break; // Impossible to form an order under the strict overshoot limit
+
+            let bestItems = foundBest.items;
+            bestItems.sort(sortItemsSafe);
+            
+            orders.push({
+              id: Math.random().toString(36).substring(2, 11),
+              items: bestItems,
+              total: bestItems.reduce((s, i) => s + Math.round(i.price * 100), 0) / 100
+            });
+
+            // Remove grouped items from pools
+            bestItems.forEach(used => {
+              if (used.type === 'must') {
+                let idx = remainingMust.findIndex(m => m.uniqueId === used.uniqueId);
+                if (idx !== -1) remainingMust.splice(idx, 1);
+              } else if (used.type === 'filler1') {
+                let idx = remainingF1.findIndex(f => f.uniqueId === used.uniqueId);
+                if (idx !== -1) remainingF1.splice(idx, 1);
+              } else {
+                let idx = remainingF2.findIndex(f => f.uniqueId === used.uniqueId);
+                if (idx !== -1) remainingF2.splice(idx, 1);
+              }
+            });
           }
 
-          if (bestConfig) {
-            return { orders: bestConfig.orders };
-          } else {
-            return { error: "Not enough fillers to mathematically bridge the gap to your target. Add more fillers or reduce the threshold." };
-          }
+          return { orders, partialMustHaves: remainingMust };
         };
 
         // --- Main Application Component ---
         function App() {
+          // STATE INITIALIZATION
           const [items, setItems] = useState(() => {
             const saved = localStorage.getItem('optimizer_items_v2');
             if (saved) return JSON.parse(saved);
@@ -223,10 +189,15 @@
             const saved = localStorage.getItem('optimizer_target');
             return saved ? parseFloat(saved) : 249;
           });
+          const [maxOvershoot, setMaxOvershoot] = useState(() => {
+            const saved = localStorage.getItem('optimizer_max_overshoot');
+            return saved ? parseFloat(saved) : 25;
+          });
           const [discountValue, setDiscountValue] = useState(() => {
             const saved = localStorage.getItem('optimizer_discount');
             return saved ? parseFloat(saved) : 50;
           });
+          
           const [allowF1, setAllowF1] = useState(() => {
             const saved = localStorage.getItem('optimizer_allow_f1');
             return saved !== 'false'; 
@@ -240,6 +211,7 @@
           const [results, setResults] = useState(null);
           const [appError, setAppError] = useState(null);
           const [copiedId, setCopiedId] = useState(null);
+          
           const [confirmModal, setConfirmModal] = useState(null);
           const [newItem, setNewItem] = useState({ name: '', price: '', qty: 1 });
           const [moveState, setMoveState] = useState({ itemId: null, qty: 1, targetType: 'must' });
@@ -255,10 +227,11 @@
           useEffect(() => {
             localStorage.setItem('optimizer_items_v2', JSON.stringify(items));
             localStorage.setItem('optimizer_target', targetAmount.toString());
+            localStorage.setItem('optimizer_max_overshoot', maxOvershoot.toString());
             localStorage.setItem('optimizer_discount', discountValue.toString());
             localStorage.setItem('optimizer_allow_f1', allowF1.toString());
             localStorage.setItem('optimizer_allow_f2', allowF2.toString());
-          }, [items, targetAmount, discountValue, allowF1, allowF2]);
+          }, [items, targetAmount, maxOvershoot, discountValue, allowF1, allowF2]);
 
           const mustHaves = items.filter(i => i.type === 'must');
           const filler1s = items.filter(i => i.type === 'filler1');
@@ -353,7 +326,7 @@
             try {
               const f1 = allowF1 ? filler1s : [];
               const f2 = allowF2 ? filler2s : [];
-              const res = calculateOptimization(mustHaves, f1, f2, targetAmount, discountValue);
+              const res = calculateOptimization(mustHaves, f1, f2, targetAmount, maxOvershoot);
               
               if (res.error) {
                 setAppError(res.error); setResults(null);
@@ -420,6 +393,21 @@
              if (type === 'filler2') return 'PADDING';
              return '';
           };
+
+          const groupedPartialItems = useMemo(() => {
+            if (!results || !results.partialMustHaves) return [];
+            let map = new Map();
+            results.partialMustHaves.forEach(item => {
+              if (map.has(item.name)) {
+                const existing = map.get(item.name);
+                existing.qty += 1;
+                existing.total += item.price;
+              } else {
+                map.set(item.name, { ...item, qty: 1, total: item.price });
+              }
+            });
+            return Array.from(map.values());
+          }, [results]);
 
           const renderItemList = (displayItems, type) => (
             <div className="space-y-3 mt-4 max-h-[400px] lg:max-h-[350px] overflow-y-auto pr-2 custom-scrollbar pb-2">
@@ -578,47 +566,52 @@
 
                 <div className="lg:col-span-7 space-y-6">
                   <div className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-gray-200">
-                    <div className="flex flex-col lg:flex-row gap-5 lg:items-end justify-between">
-                      
-                      <div className="grid grid-cols-2 gap-4 flex-1">
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Target Threshold</label>
-                          <div className="relative">
-                            <span className="absolute left-3 top-2.5 text-gray-500 font-medium">₹</span>
-                            <input type="number" className="w-full border border-gray-300 rounded-lg pl-7 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow" value={targetAmount} onChange={e => setTargetAmount(parseFloat(e.target.value) || 0)} />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 text-emerald-700">Expected Discount</label>
-                          <div className="relative">
-                            <span className="absolute left-3 top-2.5 text-emerald-600 font-medium">₹</span>
-                            <input type="number" className="w-full border border-emerald-300 bg-emerald-50/30 rounded-lg pl-7 pr-4 py-2 font-medium text-emerald-900 focus:ring-2 focus:ring-emerald-500 outline-none transition-shadow" value={discountValue} onChange={e => setDiscountValue(parseFloat(e.target.value) || 0)} />
-                          </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">Target Threshold</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2.5 text-gray-500 font-medium">₹</span>
+                          <input type="number" className="w-full border border-gray-300 rounded-lg pl-7 pr-4 py-2 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow" value={targetAmount} onChange={e => setTargetAmount(parseFloat(e.target.value) || 0)} />
                         </div>
                       </div>
-
-                      <div className="flex flex-col gap-3">
-                         <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row gap-4 bg-gray-50 p-2.5 rounded-lg border border-gray-100 justify-center">
-                           <label className="flex items-center gap-2.5 cursor-pointer group w-max">
-                             <div className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 ${allowF1 ? 'bg-blue-500' : 'bg-gray-300'}`}>
-                               <input type="checkbox" className="opacity-0 w-0 h-0" checked={allowF1} onChange={e => setAllowF1(e.target.checked)} />
-                               <span className={`absolute left-0.5 top-0.5 bg-white w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 ${allowF1 ? 'translate-x-3.5' : 'translate-x-0'}`}></span>
-                             </div>
-                             <span className="text-xs font-medium text-gray-700">Allow L1 Fillers</span>
-                           </label>
-                           <label className="flex items-center gap-2.5 cursor-pointer group w-max">
-                             <div className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 ${allowF2 ? 'bg-orange-500' : 'bg-gray-300'}`}>
-                               <input type="checkbox" className="opacity-0 w-0 h-0" checked={allowF2} onChange={e => setAllowF2(e.target.checked)} />
-                               <span className={`absolute left-0.5 top-0.5 bg-white w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 ${allowF2 ? 'translate-x-3.5' : 'translate-x-0'}`}></span>
-                             </div>
-                             <span className="text-xs font-medium text-gray-700">Allow L2 Fillers</span>
-                           </label>
-                         </div>
-
-                         <button onClick={optimize} className="w-full lg:w-auto bg-gray-900 text-white px-6 py-3 lg:py-2.5 rounded-xl font-semibold hover:bg-gray-800 focus:ring-4 focus:ring-gray-200 transition-all flex items-center justify-center gap-2 shadow-md">
-                           <ZapIcon className="w-4 h-4" /> Calculate Route
-                         </button>
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 text-amber-700">Max Overshoot <span className="text-[10px] font-normal opacity-80">(per order)</span></label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2.5 text-amber-600 font-medium">₹</span>
+                          <input type="number" className="w-full border border-amber-300 bg-amber-50/30 rounded-lg pl-7 pr-4 py-2 font-medium text-amber-900 focus:ring-2 focus:ring-amber-500 outline-none transition-shadow" value={maxOvershoot} onChange={e => setMaxOvershoot(parseFloat(e.target.value) || 0)} />
+                        </div>
                       </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 text-emerald-700">Expected Discount</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2.5 text-emerald-600 font-medium">₹</span>
+                          <input type="number" className="w-full border border-emerald-300 bg-emerald-50/30 rounded-lg pl-7 pr-4 py-2 font-medium text-emerald-900 focus:ring-2 focus:ring-emerald-500 outline-none transition-shadow" value={discountValue} onChange={e => setDiscountValue(parseFloat(e.target.value) || 0)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-100 pt-5">
+                       <div className="flex gap-4 w-full sm:w-auto">
+                         <label className="flex items-center gap-2.5 cursor-pointer group">
+                           <div className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 ${allowF1 ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                             <input type="checkbox" className="opacity-0 w-0 h-0" checked={allowF1} onChange={e => setAllowF1(e.target.checked)} />
+                             <span className={`absolute left-0.5 top-0.5 bg-white w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 ${allowF1 ? 'translate-x-3.5' : 'translate-x-0'}`}></span>
+                           </div>
+                           <span className="text-xs font-medium text-gray-700">Allow L1 Fillers</span>
+                         </label>
+                         <label className="flex items-center gap-2.5 cursor-pointer group">
+                           <div className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 ${allowF2 ? 'bg-orange-500' : 'bg-gray-300'}`}>
+                             <input type="checkbox" className="opacity-0 w-0 h-0" checked={allowF2} onChange={e => setAllowF2(e.target.checked)} />
+                             <span className={`absolute left-0.5 top-0.5 bg-white w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 ${allowF2 ? 'translate-x-3.5' : 'translate-x-0'}`}></span>
+                           </div>
+                           <span className="text-xs font-medium text-gray-700">Allow L2 Fillers</span>
+                         </label>
+                       </div>
+
+                       <button onClick={optimize} className="w-full sm:w-auto bg-gray-900 text-white px-6 py-3 sm:py-2.5 rounded-xl font-semibold hover:bg-gray-800 focus:ring-4 focus:ring-gray-200 transition-all flex items-center justify-center gap-2 shadow-md">
+                         <ZapIcon className="w-4 h-4" /> Calculate Route
+                       </button>
                     </div>
                   </div>
 
@@ -636,10 +629,16 @@
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                       
                       <div className="flex justify-end mb-[-10px]">
-                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 shadow-sm">
-                           <ZapIcon className="w-3 h-3" /> Economic Engine (0 Must-Haves Left Behind)
+                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-sm">
+                           <ZapIcon className="w-3 h-3" /> Smart Knapsack Algorithm (Strict Limit)
                          </span>
                       </div>
+
+                      {results.orders.length === 0 && results.partialMustHaves.length === 0 && (
+                         <div className="text-center py-12 bg-white rounded-2xl border border-gray-200 text-gray-500 shadow-sm">
+                           Add items to calculate optimal groupings.
+                         </div>
+                      )}
 
                       {results.orders.map((order, index) => {
                         const overflow = order.total - targetAmount;
@@ -700,6 +699,38 @@
                           </div>
                         );
                       })}
+
+                      {groupedPartialItems.length > 0 && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden relative">
+                          <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400"></div>
+                          <div className="p-4 pl-6 border-b border-amber-100 bg-amber-50/50">
+                            <h3 className="font-bold text-gray-900">Leftover Essentials</h3>
+                            <p className="text-xs text-amber-800 font-medium mt-0.5">
+                              Total: ₹{groupedPartialItems.reduce((s, i) => s + i.total, 0).toFixed(2)} • Need ₹{(targetAmount - groupedPartialItems.reduce((s, i) => s + i.total, 0)).toFixed(2)} more for next discount
+                            </p>
+                          </div>
+                          <div className="p-4 pl-6 bg-white overflow-x-auto">
+                            <table className="w-full text-sm min-w-[280px]">
+                              <tbody>
+                                {groupedPartialItems.map((item, idx) => (
+                                  <tr key={idx} className="border-b border-gray-50 last:border-0">
+                                    <td className="py-2.5 text-gray-800 font-medium pr-2">{item.name}</td>
+                                    <td className="py-2.5 text-gray-500 text-right pr-4">₹{item.price.toFixed(2)} x {item.qty}</td>
+                                    <td className="py-2.5 text-gray-900 font-medium text-right w-20 sm:w-24">₹{item.total.toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            
+                            <div className="mt-4 p-3 bg-amber-50/70 rounded-xl text-xs text-amber-900 border border-amber-100 flex gap-3">
+                               <InfoIcon className="shrink-0 text-amber-600 w-5 h-5" />
+                               <div className="leading-relaxed">
+                                 These items could not be packed without violating your <span className="font-bold">₹{maxOvershoot.toFixed(2)} Max Overshoot</span> limit. Save them for later or add more fillers!
+                               </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
